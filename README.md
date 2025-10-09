@@ -15,3 +15,7 @@ Tools that I will use
 * Version Control: Git 
 
 It is decided to set up a Region of Interest (ROI) in the field of view of the camera.  As I will be placing the vials in the same spot throughout the experiment, I will hardcode the ROI in the camera capture code.  
+
+# To Be Noted
+
+Please run the code in Python 3.13.5 (base) or above.

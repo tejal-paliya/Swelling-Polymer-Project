@@ -26,6 +26,5 @@ jobs:
 
     - name: Run your main experiment or tests
       run: |
-        python src/your_main_script.py
-        # or your test command here
+        python src/capture_frames.py
 

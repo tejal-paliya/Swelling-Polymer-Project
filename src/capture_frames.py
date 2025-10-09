@@ -1,74 +1,63 @@
 import cv2
 import time
 import os
-from src.roi_selector import select_roi, save_roi, load_roi
-from src.data_handler import make_save_dir, save_frame, save_metadata
 
-def run_camera_capture(
-    polymer_solvent_pair, temperature, experiment_number,
-    n_frames_per_minute, duration_minutes, camera_index=0, base_folder="data/raw"
-):
+def test_camera_capture(frames_per_minute=1, duration_minutes=1, save_folder="test_frames"):
     """
-    Captures images from USB camera with user metadata and ROI selection.
-    Creates unique folder for each round of experiment, selects ROI, saves frames and experiment metadata.
+    Opens camera feed, shows live video, captures frames at intervals,
+    and saves them in specified folder.
 
-    Arguments are:
-        polymer_solvent_pair (str): Polymer-solvent input from user.
-        temperature (str): Temperature input from user.
-        experiment_number (str or int): Experiment ID from user.
-        n_frames_per_minute (int): Number of frames to capture per minute.
-        duration_minutes (int): Total experiment time in minutes.
-        camera_index (int): Index of camera to use (default 0).
-        base_folder (str): Root folder for saving images.
+    Args:
+        frames_per_minute (int): Number of frames to save per minute.
+        duration_minutes (int): Duration to capture frames (minutes).
+        save_folder (str): Folder to save captured frames.
     """
-    # Construct path: base/polymer_solvent_pair/temperature/experiment_number/
-    experiment_path = make_save_dir(base_folder, polymer_solvent_pair, temperature, experiment_number)
 
-    cap = cv2.VideoCapture(camera_index)
-    ret, frame = cap.read()
-    if not ret:
-        print("Error: Unable to read initial frame from camera.")
-        cap.release()
+    interval = 60.0 / frames_per_minute
+    total_frames = frames_per_minute * duration_minutes
+
+    os.makedirs(save_folder, exist_ok=True)
+
+    cap = cv2.VideoCapture(0)  # Change index if multiple cameras
+
+    if not cap.isOpened():
+        print("Error: Could not open camera.")
         return
 
-    # Select ROI on the initial frame
-    roi = select_roi(frame)
-    save_roi(roi, os.path.join(experiment_path, "roi.txt"))
-    x, y, w, h = roi
+    print(f"Starting camera capture for {duration_minutes} minutes, saving {total_frames} frames...")
 
-    # Save metadata for experiment
-    metadata = {
-        "polymer_solvent_pair": polymer_solvent_pair,
-        "temperature": temperature,
-        "experiment_number": experiment_number,
-        "roi": f"{x},{y},{w},{h}",
-        "n_frames_per_minute": n_frames_per_minute,
-        "duration_minutes": duration_minutes,
-        "timestamp": time.strftime("%Y-%m-%d %H:%M:%S")
-    }
-    save_metadata(metadata, os.path.join(experiment_path, "metadata.txt"))
+    frames_captured = 0
+    start_time = time.time()
 
-    total_frames = n_frames_per_minute * duration_minutes
-    interval = 60.0 / n_frames_per_minute
-
-    print(f"Capturing {total_frames} frames over {duration_minutes} minutes.")
-
-    for frame_idx in range(total_frames):
+    while frames_captured < total_frames:
         ret, frame = cap.read()
         if not ret:
-            print(f"Warning: Failed to capture frame {frame_idx}. Skipping.")
-            continue
-        roi_frame = frame[y:y + h, x:x + w]
+            print("Failed to grab frame")
+            break
 
-        # Logical save name: frame_{exp}_{idx:04d}_{timestamp}.png
-        timestamp = time.strftime("%Y%m%d_%H%M%S")
-        fname = f"frame_exp{experiment_number}_{frame_idx:04d}_{timestamp}.png"
-        save_path = os.path.join(experiment_path, fname)
-        save_frame(roi_frame, experiment_path, fname)
+        cv2.imshow("Camera Live Feed", frame)
 
-        print(f"Saved: {save_path}")
-        time.sleep(interval)
+        elapsed = time.time() - start_time
+        expected_frames = int(elapsed / interval)
+
+        if frames_captured < expected_frames:
+            timestamp = time.strftime("%Y%m%d_%H%M%S")
+            filename = f"frame_{frames_captured:04d}_{timestamp}.png"
+            filepath = os.path.join(save_folder, filename)
+            cv2.imwrite(filepath, frame)
+            print(f"Saved {filepath}")
+            frames_captured += 1
+
+        if cv2.waitKey(1) & 0xFF == ord('q'):
+            print("Exiting due to user input")
+            break
 
     cap.release()
-    print(f"All frames saved to: {experiment_path}")
+    cv2.destroyAllWindows()
+    print(f"Camera capture finished. {frames_captured} frames saved to {save_folder}")
+
+if __name__ == "__main__":
+    # Run test with default config: 1 frame per minute for 1 minute
+    test_camera_capture(frames_per_minute=1, duration_minutes=1)
+
 

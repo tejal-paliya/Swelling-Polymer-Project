@@ -1,4 +1,6 @@
 from src.capture_frames import run_camera_capture
+from src.analysis.swelling_detection import detect_bead_and_display_size
+
 if __name__ == "__main__":
     polymer_solvent_pair = input("Enter polymer-solvent pair (e.g., 'PolymerA-SolventB'): ")
     temperature = input("Enter temperature (e.g., '25C'): ")

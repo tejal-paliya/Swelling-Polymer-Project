@@ -13,3 +13,6 @@ run_camera_capture(
         n_frames_per_minute,
         duration_minutes
 )
+
+# After capturing frames, automatically analyze the first image in the latest experiment
+detect_bead_and_display_size()

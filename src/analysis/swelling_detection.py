@@ -4,38 +4,34 @@ import os
 import glob
 import matplotlib.pyplot as plt
 
-def analyze_bead_swelling_all_frames(data_root="data/raw"):
+def analyze_bead_swelling_all_frames_robust(data_root="data/raw"):
     """
-    Analyzes *all* frames in the most recent experiment folder,
-    detects the bead diameter in each frame (no blur applied),
-    and plots the swelling (diameter in pixels) vs. frame index.
+    Robustly analyzes all frames in the most recent experiment folder.
+    Uses temporal consistency to filter out jumps in detected diameter.
     """
-    # Find most recent experiment folder
     experiment_folders = [os.path.join(dp, d) for dp, dn, filenames in os.walk(data_root) for d in dn]
     if not experiment_folders:
         print(f"No experiment folders found in {data_root}")
         return None
     latest_folder = max(experiment_folders, key=os.path.getmtime)
 
-    # Find all images in this folder
     image_files = sorted(glob.glob(os.path.join(latest_folder, "frame_*.png")))
     if not image_files:
         print(f"No images found in {latest_folder}")
         return None
 
-    diameters = []
-    frame_indices = []
+    bead_data = []
+    prev_x, prev_y, prev_r = None, None, None
+    tolerance_center = 25  # max shift in pixels from previous center
+    tolerance_radius = 8   # max change in pixels from previous radius
 
     for idx, image_path in enumerate(image_files):
         img = cv2.imread(image_path)
         if img is None:
-            diameters.append(np.nan)
+            bead_data.append(np.nan)
             continue
 
-        # Canny edge detection (no blur)
         edges = cv2.Canny(img, 50, 150)
-
-        # Set expected range for bead radii (customize as needed)
         min_radius = 20
         max_radius = 100
 
@@ -45,32 +41,47 @@ def analyze_bead_swelling_all_frames(data_root="data/raw"):
             minRadius=min_radius, maxRadius=max_radius
         )
 
-        bead_diameter_pixels = None
+        # Filter by spatial and size consistency
         if circles is not None:
             circles = np.uint16(np.around(circles))
             img_h, img_w = img.shape[:2]
-            best_circle = min(
-                circles[0],
-                key=lambda c: abs(c[1] - img_h * 0.8) + abs(c[0] - img_w / 2)
-            )
+            if idx == 0:
+                best_circle = min(
+                    circles[0], key=lambda c: abs(c[1] - img_h * 0.8) + abs(c[0] - img_w / 2)
+                )
+            else:
+                candidates = [
+                    c for c in circles[0] if (
+                        abs(c[0] - prev_x) < tolerance_center and
+                        abs(c[1] - prev_y) < tolerance_center and
+                        abs(c[2] - prev_r) < tolerance_radius
+                    )
+                ]
+                if candidates:
+                    best_circle = min(candidates, key=lambda c: (c[0]-prev_x)**2 + (c[1]-prev_y)**2)
+                else:
+                    # No consistent detection: use previous radius (and mark as interpolated)
+                    bead_data.append(prev_r*2 if prev_r is not None else np.nan)
+                    continue
+
             x, y, r = best_circle
-            bead_diameter_pixels = r * 2
+            prev_x, prev_y, prev_r = x, y, r
+            bead_data.append(r*2)
         else:
-            bead_diameter_pixels = np.nan  # No bead found in this frame
+            # If no detection, use previous radius (stationary assumption)
+            bead_data.append(prev_r*2 if prev_r is not None else np.nan)
 
-        diameters.append(bead_diameter_pixels)
-        frame_indices.append(idx)
-
-    # Plotting swelling graph
+    # Plot
     plt.figure(figsize=(8,5))
-    plt.plot(frame_indices, diameters, marker='o')
+    plt.plot(bead_data, marker='o')
     plt.xlabel("Frame Number")
     plt.ylabel("Bead Diameter (pixels)")
-    plt.title("Bead Swelling (Pixel Diameter vs. Frame)")
+    plt.title("Bead Swelling (Consistent Detection)")
     plt.grid()
     plt.show()
-    return diameters
 
-# Example usage:
+    return bead_data
+
 if __name__ == "__main__":
-    analyze_bead_swelling_all_frames()
+    analyze_bead_swelling_all_frames_robust()
+

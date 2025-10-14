@@ -67,6 +67,13 @@ def analyze_bead_swelling_all_frames_robust(data_root="data/raw"):
             x, y, r = best_circle
             prev_x, prev_y, prev_r = x, y, r
             bead_data.append(r*2)
+             # Draw the detected circle and save image
+            marked_img = img.copy()
+            cv2.circle(marked_img, (x, y), r, (0, 255, 0), 2)  # Draw green circle
+            cv2.circle(marked_img, (x, y), 2, (0, 0, 255), 3)  # Draw red center point
+            folder, fname = os.path.split(image_path)
+            marked_path = os.path.join(folder, 'marked_' + fname)
+            cv2.imwrite(marked_path, marked_img)
         else:
             # If no detection, use previous radius (stationary assumption)
             bead_data.append(prev_r*2 if prev_r is not None else np.nan)
@@ -81,7 +88,3 @@ def analyze_bead_swelling_all_frames_robust(data_root="data/raw"):
     plt.show()
 
     return bead_data
-
-if __name__ == "__main__":
-    analyze_bead_swelling_all_frames_robust()
-

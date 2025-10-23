@@ -72,3 +72,8 @@ def run_camera_capture(
     cap.release()
     print(f"All frames saved to: {experiment_path}")
 
+    try:
+        from src.analysis.model.height_inference import run_height_analysis
+        run_height_analysis(experiment_path)                # auto-analyse new frames
+    except Exception as e:
+        print(f"[height-analysis] skipped – {e}")

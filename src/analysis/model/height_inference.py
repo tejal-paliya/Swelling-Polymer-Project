@@ -1,89 +1,75 @@
-import os, cv2, glob
-import numpy as np
-import matplotlib.pyplot as plt
+# src/analysis/model/height_inference.py
+import os, glob, cv2
 from ultralytics import YOLO
 
-MODEL_PATH = "src/analysis/model/best.pt"
-OUT_DIRNAME = "frame_capture"                    # top-level subfolder for annotated frames
-
-def _sort_by_index(names):
-    """Utility: numeric sort on ..._####_ timestamp."""
-    def key(fp):
-        stem = os.path.splitext(os.path.basename(fp))[0]
-        parts = stem.split("_")
-        try:
-            return int(parts[2])            #  frame_exp<id>_0007_...
-        except (ValueError, IndexError):
-            return 0
-    return sorted(names, key=key)
-
-def run_height_analysis(experiment_dir):
+MODEL_PATH   = "src/analysis/model/best.pt"
+SAVE_PARENT  = "data/frame_capture"        # where annotated frames will live
+# ────────────────────────────────────────────────────────────────────────────────
+def _select_box(boxes, cls_id):
     """
-    1. loads best.pt,
-    2. iterates over PNGs in experiment_dir,
-    3. writes annotated images to experiment_dir/../frame_capture/<exp_id>/,
-    4. saves heights.csv and heights.png in that folder,
-    5. returns list of heights.
+    Return the box (xyxy tensor) with the highest confidence for a given class.
+    boxes: Results.boxes from Ultralytics, len(boxes) ≥ 1
+    cls_id: integer class id to select
+    """
+    cand = [b for b in boxes if int(b.cls[0]) == cls_id]
+    if not cand:
+        return None
+    # highest confidence first
+    cand.sort(key=lambda b: float(b.conf[0]), reverse=True)
+    return cand[0].xyxy[0]   # tensor of shape (4,)  (x1, y1, x2, y2)
+# ────────────────────────────────────────────────────────────────────────────────
+def run_height_analysis(experiment_dir: str):
+    """
+    For every *.png in `experiment_dir`:
+        • detect bed_height and vial_base
+        • draw a red vertical line between mid-points
+        • save annotated frame in data/frame_capture/<exp_id>/
+        • print 'frame idx ▸ height_px'
     """
     model = YOLO(MODEL_PATH)
-    frame_paths = _sort_by_index(glob.glob(os.path.join(experiment_dir, "*.png")))
-    if not frame_paths:
-        print(f"No PNG frames found in {experiment_dir}")
-        return []
+    pngs  = sorted(glob.glob(os.path.join(experiment_dir, "*.png")))
+    if not pngs:
+        print(f"[height-analysis] No PNGs in {experiment_dir}")
+        return
 
-    # Derive numeric experiment id from the first filename
-    first = os.path.basename(frame_paths[0])
-    exp_id = first.split("_")[1][3:] if "exp" in first else "unknown"
-    save_root = os.path.join("data", OUT_DIRNAME, exp_id)
-    os.makedirs(save_root, exist_ok=True)
+    # derive experiment id from first filename: frame_exp<id>_....
+    stem     = os.path.basename(pngs[0]).split("_")
+    exp_id   = stem[1][3:] if len(stem) > 1 and stem[1].startswith("exp") else "unknown"
+    save_dir = os.path.join(SAVE_PARENT, exp_id)
+    os.makedirs(save_dir, exist_ok=True)
 
-    heights, times = [], []
-    for idx, fp in enumerate(frame_paths):
-        # ------------------------------------------------------------------ inference
-        results = model(fp)[0]                           # Results object for one frame
-        boxes = results.boxes
-        if len(boxes) < 2:
-            print(f"Warning: <2 boxes in {fp}; skipping")
+    for idx, fp in enumerate(pngs):
+        res   = model(fp, verbose=False)[0]          # one-image inference
+        box_bed  = _select_box(res.boxes, cls_id=0)  # bed_height
+        box_base = _select_box(res.boxes, cls_id=1)  # vial_base
+        if box_bed is None or box_base is None:
+            print(f"[warning] missing box in {os.path.basename(fp)}; skipped")
             continue
-        # Extract class-wise y coordinates
-        y_bed   = [int(b.xyxy[0][1]) for b in boxes if int(b.cls[0]) == 0]   # class 0 = bed_height
-        y_base  = [int(b.xyxy[0][3]) for b in boxes if int(b.cls[0]) == 1]   # class 1 = vial_base
-        if not y_bed or not y_base:
-            print(f"Warning: missing one class in {fp}; skipping")
-            continue
-        bed_y  = min(y_bed)      # uppermost bed surface
-        base_y = max(y_base)     # lowermost vial base
-        height = base_y - bed_y
-        # ------------------------------------------------------------------ annotate frame
+
+        # mid-points
+        x_bed  = float(box_bed[0] + box_bed[2]) / 2
+        y_bed  = float(box_bed[1] + box_bed[3]) / 2
+        x_base = float(box_base[0] + box_base[2]) / 2
+        y_base = float(box_base[1] + box_base[3]) / 2
+        height_px = abs(y_base - y_bed)
+
+        # annotate image --------------------------------------------------------
         img = cv2.imread(fp)
-        # Draw boxes already rendered by results.plot(boxes=True, labels=False), but we add our own:
-        for b in boxes:
-            x1,y1,x2,y2 = map(int,b.xyxy[0])
-            color = (0,255,0) if int(b.cls[0])==0 else (0,0,255)
-            cv2.rectangle(img,(x1,y1),(x2,y2),color,2)
-        cv2.putText(img, f"h={height}px", (30,50),
-                    cv2.FONT_HERSHEY_SIMPLEX, 1.2, (255,0,0), 2)
-        # ------------------------------------------------------------------ save
-        tgt = os.path.join(save_root, os.path.basename(fp))
-        cv2.imwrite(tgt, img)
-        heights.append(height)
-        times.append(idx)                      # one index per frame
+        # draw bounding boxes (green for bed, blue for base)
+        cv2.rectangle(img, (int(box_bed[0]),  int(box_bed[1])),
+                           (int(box_bed[2]),  int(box_bed[3])), (0,255,0), 2)
+        cv2.rectangle(img, (int(box_base[0]), int(box_base[1])),
+                           (int(box_base[2]), int(box_base[3])), (255,0,0), 2)
+        # draw red vertical line (x-pos = average of the two mid-points)
+        x_line = int((x_bed + x_base) / 2)
+        cv2.line(img, (x_line, int(y_bed)), (x_line, int(y_base)), (0,0,255), 3)
+        # put height text
+        cv2.putText(img, f"{int(height_px)} px",
+                    (30, 40), cv2.FONT_HERSHEY_SIMPLEX, 1, (0,0,255), 2)
 
-    # ---------------------------------------------------------------------- persist CSV
-    csv_path = os.path.join(save_root, "heights.csv")
-    np.savetxt(csv_path, np.column_stack([times, heights]),
-               delimiter=",", header="frame_idx,height_px", fmt="%d")
-    # ---------------------------------------------------------------------- plot
-    plt.figure(figsize=(8,5))
-    plt.plot(times, heights, marker="o")
-    plt.xlabel("Frame index")
-    plt.ylabel("Bed height (pixels)")
-    plt.title(f"Experiment {exp_id}: height vs. time")
-    plt.grid(True)
-    plot_path = os.path.join(save_root, "heights.png")
-    plt.savefig(plot_path, dpi=200)
-    plt.close()
-    print(f"Annotated frames  ➜ {save_root}")
-    print(f"CSV data          ➜ {csv_path}")
-    print(f"Height plot       ➜ {plot_path}")
-    return heights
+        # save ------------------------------------------------------------------
+        tgt = os.path.join(save_dir, os.path.basename(fp))
+        cv2.imwrite(tgt, img)
+        print(f"{os.path.basename(fp)} ▸ {int(height_px)} px")
+
+    print(f"[height-analysis] annotated frames ➜ {save_dir}")

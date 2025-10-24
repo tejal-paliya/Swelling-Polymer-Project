@@ -41,7 +41,7 @@ def run_height_analysis(exp_dir: str):
 
         (xb, yb)  = _midpoint(box_bed)
         (xx, yx)  = _midpoint(box_base)
-        h_px      = abs(yx - yb)
+        h_px      = round(abs(yx - yb), 2)
 
         # ---------------------------------------------------------------- draw
         img = cv2.imread(fp)
@@ -68,7 +68,6 @@ def run_height_analysis(exp_dir: str):
         if t0 is None:
             t0 = t_curr
         times.append((t_curr - t0).total_seconds())
-        times.append((t_curr - t0).total_seconds())
         heights.append(h_px)
         print(f"{os.path.basename(fp)} → {int(h_px)} px  @ {times[-1]:.1f}s")
 
@@ -77,7 +76,7 @@ def run_height_analysis(exp_dir: str):
     with open(csv_path, "w", newline="") as f:
         w = csv.writer(f)
         w.writerow(["seconds", "height_px"])
-        w.writerows(zip(times, heights))
+        w.writerows([(t, f"{h: .2f}") for t, h in zip(times, heights)])
     # plot -------------------------------------------------------------------
     plt.figure(figsize=(8,4))
     plt.plot(times, heights, marker="o")

@@ -57,10 +57,17 @@ def run_height_analysis(exp_dir: str):
         cv2.imwrite(os.path.join(out_dir, os.path.basename(fp)), img)
 
         # ---------------------------------------------------------------- time
-        ts = os.path.splitext(fp)[0].split("_")[-1]          # YYYYMMDD_HHMMSS
-        t_curr = datetime.strptime(ts, DATE_FMT)
+        stem_parts = os.path.splitext(fp)[0].split("_")
+        # the last two tokens are YYYYMMDD and HHMMSS
+        ts_string = "_".join(stem_parts[-2:])                # e.g. 20251022_155558
+        try:
+            t_curr = datetime.strptime(ts_string, "%Y%m%d_%H%M%S")
+        except ValueError:                                   # fallback if date part missing
+            t_curr = datetime.strptime(stem_parts[-1], "%H%M%S")
+
         if t0 is None:
             t0 = t_curr
+        times.append((t_curr - t0).total_seconds())
         times.append((t_curr - t0).total_seconds())
         heights.append(h_px)
         print(f"{os.path.basename(fp)} → {int(h_px)} px  @ {times[-1]:.1f}s")

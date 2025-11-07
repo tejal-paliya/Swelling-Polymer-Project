@@ -13,3 +13,7 @@ run_camera_capture(
         n_frames_per_minute,
         duration_minutes
 )
+
+base_folder = "data/raw"
+experiment_path = os.path.join(base_folder, polymer_solvent_pair, str(temperature), str(experiment_number))
+run_height_analysis(experiment_path)

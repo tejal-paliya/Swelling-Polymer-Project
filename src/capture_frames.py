@@ -71,4 +71,3 @@ def run_camera_capture(
 
     cap.release()
     print(f"All frames saved to: {experiment_path}")
-

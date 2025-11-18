@@ -129,6 +129,12 @@ def run_height_analysis(parent_experiment_folder):
         cv2.circle(disp, base_pt, 8, (0,0,255), -1)
         cv2.circle(disp, bed_pt, 8, (0,0,255), -1)
         cv2.line(disp, base_pt, (base_pt[0], bed_pt[1]), (0,0,255), 2)
+        # Write bed height either in mm or in pixels
+        if has_lid and vial_height_px != 0:
+            text = f"Height: {bed_height_mm:.1f} mm (smoothed: {smoothed_value:.1f})"
+        else:
+            text = f"Height: {bed_height_px:.1f} px"
+        cv2.putText(disp, text, (10, 30), cv2.FONT_HERSHEY_SIMPLEX, 1.1, (0,0,255), 2)
         ann_fname = f"annot_{os.path.basename(img_path)}"
         save_path = os.path.join(latest_images_dir, ann_fname)
         cv2.imwrite(save_path, disp)

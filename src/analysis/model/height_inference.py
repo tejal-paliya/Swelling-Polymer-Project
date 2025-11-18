@@ -7,10 +7,10 @@ import time
 from ultralytics import YOLO
 
 def load_yolo_model():
-    model = YOLO('src/analysis/model/best.pt')  # Update path if needed
+    model = YOLO('src/analysis/model/best.pt')
     return model
 
-CLASSES = ['bed_height', 'vial_base', 'vial_lid_top']  # Adjust if different
+CLASSES = ['bed_height', 'vial_base', 'vial_lid_top']
 
 def list_images_in_folder(folder):
     files = [
@@ -76,7 +76,7 @@ def run_height_analysis(parent_experiment_folder):
     print(f"Found {len(image_files)} image files.")
 
     mod_times = [os.path.getmtime(f) for f in image_files]
-    t0 = mod_times[0]  # always first image
+    t0 = mod_times[0]
 
     vial_height_mm = float(input("Enter the ACTUAL vial height (base to lid top) in mm: "))
     smoothing_window = 5
@@ -84,7 +84,6 @@ def run_height_analysis(parent_experiment_folder):
     model = load_yolo_model()
 
     results = []
-
     for idx, img_path in enumerate(image_files):
         img = cv2.imread(img_path)
         if img is None:
@@ -92,60 +91,62 @@ def run_height_analysis(parent_experiment_folder):
             continue
         detections = run_yolo_on_image(model, img)
         centroids = extract_centroids(detections)
-        if not all(cls in centroids for cls in CLASSES):
-            print(f"Frame {idx}: Not all key regions detected.")
-            continue
-        base_pt = centroids['vial_base']
-        bed_pt = centroids['bed_height']
-        lid_pt = centroids['vial_lid_top']
-
-        base_y, bed_y, lid_y = base_pt[1], bed_pt[1], lid_pt[1]
-        vial_height_px = abs(lid_y - base_y)
-        bed_height_px = abs(bed_y - base_y)
-        if vial_height_px == 0:
-            print(f"Frame {idx}: Zero vial height in pixel, skipping.")
-            continue
-        px_per_mm = vial_height_px / vial_height_mm
-        bed_height_mm = bed_height_px / px_per_mm
+        has_base = 'vial_base' in centroids
+        has_bed = 'bed_height' in centroids
+        has_lid = 'vial_lid_top' in centroids
 
         current_time = os.path.getmtime(img_path)
-        timestamp = current_time - t0  # this is >= 0
+        timestamp = current_time - t0
 
-        smoothed = smoother.update(bed_height_mm)
-        results.append((timestamp, bed_height_mm, smoothed))
+        if not (has_base and has_bed):
+            print(f"Frame {idx}: vial_base or bed_height not detected – skipping.")
+            continue
 
-        # Annotate image: red dots and red line
+        base_pt = centroids['vial_base']
+        bed_pt = centroids['bed_height']
+        base_y, bed_y = base_pt[1], bed_pt[1]
+        bed_height_px = abs(bed_y - base_y)
+
+        if has_lid:
+            lid_pt = centroids['vial_lid_top']
+            lid_y = lid_pt[1]
+            vial_height_px = abs(lid_y - base_y)
+            if vial_height_px != 0:
+                px_per_mm = vial_height_px / vial_height_mm
+                bed_height_mm = bed_height_px / px_per_mm
+                smoothed_value = smoother.update(bed_height_mm)
+                results.append((timestamp, round(bed_height_mm,1), round(smoothed_value,1), bed_height_px))
+                print(f"Frame {idx}: t={timestamp:.1f}s, height={bed_height_mm:.1f}mm, smoothed={smoothed_value:.1f}mm")
+            else:
+                results.append((timestamp, None, None, bed_height_px))
+                print(f"Frame {idx}: t={timestamp:.1f}s, vial_height_px=0 (invalid), raw px={bed_height_px}")
+        else:
+            results.append((timestamp, None, None, bed_height_px))
+            print(f"Frame {idx}: t={timestamp:.1f}s, vial lid not detected, raw px={bed_height_px}")
+
+        # Annotate image in all cases
         disp = img.copy()
         cv2.circle(disp, base_pt, 8, (0,0,255), -1)
         cv2.circle(disp, bed_pt, 8, (0,0,255), -1)
-        cv2.circle(disp, lid_pt, 8, (0,0,255), -1)
         cv2.line(disp, base_pt, (base_pt[0], bed_pt[1]), (0,0,255), 2)
-        # Annotate with 1 decimal
-        text = f"Height: {bed_height_mm:.1f} mm (smoothed: {smoothed:.1f})"
-        cv2.putText(disp, text, (10, 30), cv2.FONT_HERSHEY_SIMPLEX, 1.0, (0,0,255), 2)
         ann_fname = f"annot_{os.path.basename(img_path)}"
         save_path = os.path.join(latest_images_dir, ann_fname)
         cv2.imwrite(save_path, disp)
 
-        print(f"Frame {idx}: t={timestamp:.1f}s, height={bed_height_mm:.1f}mm, smoothed={smoothed:.1f}mm")
-
-    # Save results as CSV (full precision)
+    # Save CSV
     out_csv = os.path.join(latest_images_dir, "bed_height_vs_time.csv")
-    df = pd.DataFrame(results, columns=["seconds", "bed_height_mm", "smoothed_mm"])
+    df = pd.DataFrame(results, columns=["seconds", "bed_height_mm", "smoothed_mm", "bed_height_px"])
     df.to_csv(out_csv, index=False)
     print(f"Saved swelling kinetics CSV: {out_csv}")
 
-    # For plotting, use rounded values to 1 dp:
-    df_plot = df.copy()
-    df_plot["bed_height_mm"] = df_plot["bed_height_mm"].round(1)
-    df_plot["smoothed_mm"] = df_plot["smoothed_mm"].round(1)
-
-    # Plot trend
+    # Plot both mm if available and px (always)
     plt.figure(figsize=(8,5))
-    plt.plot(df_plot["seconds"], df_plot["bed_height_mm"], '.', label="Bed height (raw)")
-    plt.plot(df_plot["seconds"], df_plot["smoothed_mm"], '-', label="Bed height (smoothed, window {} frames)".format(smoothing_window))
+    if df['bed_height_mm'].notnull().any():
+        plt.plot(df["seconds"], df["bed_height_mm"], 'o', label="Bed height (mm, where lid detected)")
+        plt.plot(df["seconds"], df["smoothed_mm"], '-', label="Bed height smoothed (mm)")
+    plt.plot(df["seconds"], df["bed_height_px"], 's', label="Bed height (pixels, raw)")
     plt.xlabel("Time since start (seconds)")
-    plt.ylabel("Bed Height (mm)")
+    plt.ylabel("Bed Height (mm or pixels)")
     plt.legend()
     plt.grid(True)
     plt.title("Polymer Swelling Kinetics")
@@ -153,7 +154,6 @@ def run_height_analysis(parent_experiment_folder):
     plt.savefig(plot_path, dpi=200)
     print(f"Saved swelling kinetics plot: {plot_path}")
 
-# Direct script execution support
 if __name__ == "__main__":
     import sys
     if len(sys.argv) > 1:

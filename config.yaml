@@ -1,0 +1,63 @@
+# Camera settings
+camera:
+  index: 0
+  use_flir: true
+flir:
+  frame_rate: 10.0        # fps for acquisition (independent of display fps)
+  exposure_us: 80000       # null = Auto; or e.g. 20000 for 20 ms
+  gain_db: 4.0             # null = Auto; or e.g. 5.0
+  gamma: 1.0
+  polarization_color: false
+  width: null              # null = full sensor (2448 px for this sensor)
+  height: null             # null = full sensor (2048 px for this sensor)
+
+  
+# Paths
+paths:
+  base_folder: "data/raw"
+  model_path: "src/analysis/model/weights.pt"
+  yolo_data: "data/yolo"
+  
+# Analysis settings
+analysis:
+  smoothing_window: 5
+  classes:
+    - bed_height
+    - solvent
+    - vial_base
+    - vial_lid_top
+  kinetic_analysis:
+    enabled: true
+    min_points: 10
+    # Molar volume of the solvent used in the Flory-Rehner calculation.
+    # This is a physical constant for your solvent — only change if you
+    # switch solvents between experiments.
+    #   Water   : 1.8e-5  m3/mol  (default)
+    #   Ethanol : 5.84e-5 m3/mol
+    #   Methanol: 4.07e-5 m3/mol
+    solvent_molar_volume_m3_per_mol: 1.8e-5
+
+# Visualization
+visualization:
+  plot_dpi: 200
+  figure_size: [8, 5]
+  
+# Real-time capture visualization
+realtime_display:
+  enabled: true
+  window_name: "Polymer Bed Capture - Live Feed"
+  show_roi: true
+  show_stats: true
+  show_detection_markers: true  # Show horizontal markers
+  roi_color: [0, 255, 0]  # Green in BGR
+  roi_thickness: 2
+  text_color: [0, 255, 0]  # Green
+  text_font: 0  # cv2.FONT_HERSHEY_SIMPLEX
+  text_scale: 0.6
+  text_thickness: 2
+  fps_target: 30  # Display refresh rate
+
+temporal_prediction:
+  enabled: true
+  model_path: "src/analysis/model/temporal_predictor.pt"
+  frame_interval_s: 2.0   # Must match your capture rate (60 / n_frames_per_minute)
